@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+pydantic
+python-multipart
+Pillow
+aiofiles
+pdf2image
+numpy
+sklearn
+nltk
+pytesseract
+opencv-python
