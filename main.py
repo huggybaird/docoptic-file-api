@@ -21,7 +21,8 @@ import pytesseract
 import cv2
 
 # nltk.set_proxy('http://proxy.example.com:3128', ('USERNAME', 'PASSWORD'))
-nltk.download('stopwords')
+# nltk.download('stopwords', download_dir=r"D:\Dropbox\dev\docoptic-file-api\resources")
+nltk.data.path.append(r"D:\Dropbox\dev\docoptic-file-api\resources")
 stopwords = stopwords.words('english')
 
 app = FastAPI(
