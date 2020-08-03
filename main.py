@@ -475,7 +475,7 @@ def post_generate_html( htmlRender: HtmlRender
             #  {{{END IF}}}
             ########################################################################################## 
             token = get_start_token(responseHtml,"{{{IF "+path_complete + " IN ")
-            if(token != ""):
+            while(token != ""):
                 startIndex = responseHtml.find(token) 
                 # print("IF token:",token, " start:", startIndex)
                 endIndex = responseHtml.find("{{{END IF " + path_complete + "}}}", startIndex) + len("{{{END IF " + path_complete + "}}}")
@@ -486,6 +486,7 @@ def post_generate_html( htmlRender: HtmlRender
                     ifStatementParsed = ifStatementHtml.replace(token,"")
                     ifStatementParsed = ifStatementParsed.replace("{{{END IF " + path_complete + "}}}","")
                 responseHtml = responseHtml.replace(ifStatementHtml, ifStatementParsed)
+                token = get_start_token(responseHtml,"{{{IF "+path_complete + " IN ")
 
         else:
             #########################################################################################
