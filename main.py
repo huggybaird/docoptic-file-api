@@ -1,10 +1,10 @@
 import uvicorn
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Body
 from pydantic import BaseModel, Field# pylint: disable=no-name-in-module
 from PIL import Image, ImageSequence
 import io
 from starlette.responses import StreamingResponse
-from fastapi.responses import RedirectResponse, FileResponse
+from fastapi.responses import RedirectResponse, FileResponse, StreamingResponse
 # from fastapi.responses import FileResponse
 # from tempfile import NamedTemporaryFile
 # from shutil import copyfileobj
@@ -16,14 +16,26 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import CountVectorizer
 from nltk.corpus import stopwords
 import nltk
-from typing import List
+from typing import List, Optional
 import pytesseract
 import cv2
+from fastapi.middleware.cors import CORSMiddleware
+import pdfkit
+import tempfile
 
 # nltk.set_proxy('http://proxy.example.com:3128', ('USERNAME', 'PASSWORD'))
 # nltk.download('stopwords', download_dir=r"D:\Dropbox\dev\docoptic-file-api\resources")
 nltk.data.path.append(r"D:\Dropbox\dev\docoptic-file-api\resources")
 stopwords = stopwords.words('english')
+
+# CORS (Cross-Origin Resource Sharing) 
+origins = [
+    "http://myocpapp.pncint.net", 
+    "https://myocpapp.pncint.net", 
+    "http://localhost",
+    "http://localhost:4200",
+    "http://localhost:8080",
+]
 
 app = FastAPI(
     title="DocOptic File Processing API",
@@ -34,6 +46,14 @@ app = FastAPI(
     docs_url="/swagger-ui.html", 
     redoc_url="/redoc"
 
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # @app.post("/files/")
@@ -359,6 +379,246 @@ mimeTypeDict =  {
   "application/pdf":  {"thumbnail-format": "jpeg", "return-mime-type":"image/jpeg"} 
 }
 
+
+
+
+class HtmlRender(BaseModel):
+    htmlTemplate: str
+    jsonData: str
+    class Config:
+            orm_mode = True
+            schema_extra = {
+                'example': {
+                        'htmlTemplate':"""<html>
+                        <head></head>
+                        <body>
+                            <h1>sample {{{mySampleTitle}}} </h1>
+                            <p>{{{##a}}}. Here is a sentance with a {{{sampleValue1}}} replaced by the generator</p>
+                            {{{IF state IN [OH,FL,CA,NY]}}}
+                            <p>{{{##a}}}. Here is a paragraph that prints because {{{state}}} is in list [OH,FL,CA,NY]. </p>
+                            {{{END IF state}}}
+                            <p>{{{##a}}}. Here is a second paragraph being auto-numbered</p>
+                            {{{FOR EACH loans}}} 
+                            <p>&nbsp;&nbsp;{{{##loanNumber}}}. Account number {{{loans.loanNumber}}}} has a balance of {{{loans.loanBalance}}} </p>
+                            {{{END FOR EACH loans}}}
+                        </body>
+                        </html>""",
+                        'jsonData':  """
+                            {
+                                "mySampleTitle": "Awesomeness is here!",
+                                "sampleValue1": "$100,000.00",
+                                "state": "OH",
+                                "loans":[
+                                    {"loanNumber":"12345", "loanBalance":"$200,000"},
+                                    {"loanNumber":"67890", "loanBalance":"$999"}
+                                ]
+                            }
+                            """
+                    } 
+            }
+    
+@app.post("/document/generate/html/",  tags=["document generator"],   
+summary="Parses the json and fills in the html template",
+    description="""Processes the html document with the {{{fields}}} populated from the json object
+     Document generation in html"""
+    ,response_description="Returns a string. the string representes the generated source html  "
+    , 
+    )
+def post_generate_html( htmlRender: HtmlRender
+    # htmlTemplate: str =  """<html>
+    #     <head></head>
+    #     <body>
+    #         <h1>sample {{{mySampleTitle}}} </h1>
+    #         <p>{{{##a}}}. Here is a sentance with a {{{sampleValue1}}} replaced by the generator</p>
+    #         {{{IF state IN [OH,FL,CA,NY]}}}
+    #         <p>{{{##a}}}. Here is a paragraph that prints because {{{state}}} is in list [OH,FL,CA,NY]. </p>
+    #         {{{END IF state}}}
+    #         <p>{{{##a}}}. Here is a second paragraph being auto-numbered</p>
+    #         {{{FOR EACH loans}}} 
+    #         <p>&nbsp;&nbsp;{{{##loanNumber}}}. Account number {{{loans.loanNumber}}}} has a balance of {{{loans.loanBalance}}} </p>
+    #         {{{END FOR EACH loans}}}
+    #     </body>
+    #     </html>""",
+    # jsonData: str = """
+    # {
+    #     "mySampleTitle": "Awesomeness is here!",
+    #     "sampleValue1": "$100,000.00",
+    #     "state": "OH",
+    #     "loans":[
+    #         {"loanNumber":"12345", "loanBalance":"$200,000"},
+    #         {"loanNumber":"67890", "loanBalance":"$999"}
+    #     ]
+    # }
+    # """
+    ):
+    # sentences = [string1, string2, string3]
+    # primaryText = docCompareList.primaryDocumentExtractedText
+    htmlTemplate = htmlRender.htmlTemplate
+    jsonDataStr = htmlRender.jsonData
+    responseHtml: str = htmlTemplate
+    print("try parsing json")
+    json_object = json.loads(jsonDataStr)
+    print("try recursive loop over json")
+    for (path, node) in traverse(json_object): 
+        path_complete = '.'.join(map(str, path))
+        value_complete = ''.join(map(str, node)) 
+        # print("Path:" + path_complete + ", Value:"+value_complete + "[" + str(type(dict)) +","+ str(type(node))+"]")
+        if type(node) == str:
+            ##########################################################################################
+            #  Replace {{{attribute}}}
+            ##########################################################################################
+            responseHtml = responseHtml.replace("{{{" + path_complete + "}}}", value_complete)
+            print("ValueNode:" + path_complete)
+            
+            ##########################################################################################
+            #  Replace {{{IF attribute IN [value1, value2, value3]}}} 
+            #  {{{END IF}}}
+            ########################################################################################## 
+            token = get_start_token(responseHtml,"{{{IF "+path_complete + " IN ")
+            if(token != ""):
+                startIndex = responseHtml.find(token) 
+                # print("IF token:",token, " start:", startIndex)
+                endIndex = responseHtml.find("{{{END IF " + path_complete + "}}}", startIndex) + len("{{{END IF " + path_complete + "}}}")
+                ifStatementHtml = responseHtml[startIndex: endIndex]
+                print("ifStatementHtml:",ifStatementHtml)
+                ifStatementParsed = ""
+                if(token.find(value_complete, token.find("[")) > 0):
+                    ifStatementParsed = ifStatementHtml.replace(token,"")
+                    ifStatementParsed = ifStatementParsed.replace("{{{END IF " + path_complete + "}}}","")
+                responseHtml = responseHtml.replace(ifStatementHtml, ifStatementParsed)
+
+        else:
+            #########################################################################################
+            # Replace {{{FOR EACH attribute}}} and {{{END FOR EACH attribute}}}
+            # This loops through the list and populates the html
+            # ########################################################################################
+            print("List or Dictionary:" + path_complete)
+            # TODO: still need to program this functionality for the 
+
+    ################################################################################
+    #  Replace all paragraph numbers {{{##a}}}, {{{##b}}}
+    ################################################################################
+    if(responseHtml.find("{{{##")): 
+        while(get_start_token(responseHtml,"{{{##") != ""):
+            token = get_start_token(responseHtml,"{{{##")
+            print("Token:",token)
+            tokenNumber = 1 
+            while(responseHtml.find(token) > 0 and tokenNumber<999):
+                print("replacing tokenNumber:", tokenNumber)
+                responseHtml = responseHtml.replace(token, str(tokenNumber),1)
+                tokenNumber = tokenNumber + 1 
+
+    return responseHtml 
+
+def traverse(dict_or_list, path=[]):
+    if isinstance(dict_or_list, dict):
+        iterator = dict_or_list.items()
+    else:
+        iterator = enumerate(dict_or_list)
+    for k, v in iterator:
+        yield path + [k], v
+        if isinstance(v, (dict, list)):
+            for k, v in traverse(v, path + [k]):
+                yield k, v
+
+#############################################################
+#  get token looks returns {{{myToken}}} from an html string
+#  examples: {{{myAttribute}}}, {{{##a}}}, 
+def get_start_token(html: str, startOfTokenString: str):
+    responseToken = ""
+    startOfToken = html.find(startOfTokenString)
+    print("startOfToken:",startOfToken)
+    endOfToken =  html.find("}}}",startOfToken)+3
+    # print("endOfToken:",endOfToken)
+    responseToken = html[ startOfToken : endOfToken]
+    return responseToken
+
+# def recursive_json_loop(dict):
+#     print("looping inside2")
+#     for key, value in dict.items(): 
+#         if type(value) == type(dict):
+#             if key != "paging":
+#                 for key, value in value.items():
+#                     if isinstance (value,list):
+#                         print(key)
+#                         # place where I need to enter list comprehension?
+#                 if type(value) == type(dict):
+#                     if key == "id":
+#                         print(" id found " + value)
+#                     if key != "id":
+#                         print(key + " 1st level")
+#                 if key == "id":
+#                     print(key)
+#         else:
+#             if key == "id":
+#                 print("id found " + value)
+
+ 
+# def walk(d):
+#     global path
+#       for k,v in d.items():
+#           if isinstance(v, str) or isinstance(v, int) or isinstance(v, float):
+#             path.append(k)
+#             print "{}={}".format(".".join(path), v)
+#             path.pop()
+#           elif v is None:
+#             path.append(k)
+#             ## do something special
+#             path.pop()
+#           elif isinstance(v, dict):
+#             path.append(k)
+#             walk(v)
+#             path.pop()
+#           else:
+#             print "###Type {} not recognized: {}.{}={}".format(type(v), ".".join(path),k, v)
+
+# mydict = {'Other': {'Stuff': {'Here': {'Key': 'Value'}}}, 'root1': {'address': {'country': 'Brazil', 'city': 'Sao', 'x': 'Pinheiros'}, 'surname': 'Fabiano', 'name': 'Silos', 'height': 1.9}, 'root2': {'address': {'country': 'Brazil', 'detail': {'neighbourhood': 'Central'}, 'city': 'Recife'}, 'surname': 'My', 'name': 'Friend', 'height': 1.78}}
+
+# path = []
+# walk(mydict)
+
+class PdfGenerator(BaseModel):
+    title: Optional[str] = None
+    sourceReferenceNumber: Optional[str] = None
+    targetPdfFileName: Optional[str] = None
+    htmlSource: str
+    class Config:
+            orm_mode = True
+            schema_extra = {
+                'example': {
+                        'title': "My Cool Document",
+                        'sourceReferenceNumber': "Guid-or-Id-for-tracing",
+                        'targetPdfFileName': "my-generated-filename.pdf",
+                        'htmlSource':"""<p><img alt="pnc bank" src="https://1000logos.net/wp-content/uploads/2019/12/PNC-Bank-Logo.png" style="height:113px; width:200px" /></p> <h1>Final With Image</h1> <p>Here is an example of how to populate the price of <span style="color:#1abc9c"><span style="font-size:36px">$200.99</span></span> for the <span style="color:#c0392b">product</span>.&nbsp;</p> <p>Here is another <strong>Sally Smith</strong></p> <p></p> <p>Here is some verbiage specific to states NY, PA, OH</p> <p></p> <p>1. This is the first paragraph</p> <p>2. This is the second paragraph</p> <p>3. This is the third paragraph</p> <p>Here is an example of a list:</p> <p>{{{FOR EACH loans}}}</p> <p>Account number {{{loans.loanNumber}}}} has a balance of {{{loans.loanBalance}}} and matures on {{{loans.loanMaturity}}}</p> <p>{{{END FOR EACH loans}}}</p>
+                            """
+                    } 
+            }
+    
+@app.post("/document/generate/pdf/",  tags=["document generator"],   
+summary="Converts html to PDF",
+    description="""Processes the html document with pdfkit and wk<html>toPDF more info https://wkhtmltopdf.org/"""
+    ,response_description="Returns a pdf document "
+    , 
+    )
+def post_generate_pdf(pdfGenerator: PdfGenerator
+# html: str =  """<p><img alt="pnc bank" src="https://1000logos.net/wp-content/uploads/2019/12/PNC-Bank-Logo.png" style="height:113px; width:200px" /></p> <h1>Final With Image</h1> <p>Here is an example of how to populate the price of <span style="color:#1abc9c"><span style="font-size:36px">$200.99</span></span> for the <span style="color:#c0392b">product</span>.&nbsp;</p> <p>Here is another <strong>Sally Smith</strong></p> <p></p> <p>Here is some verbiage specific to states NY, PA, OH</p> <p></p> <p>1. This is the first paragraph</p> <p>2. This is the second paragraph</p> <p>3. This is the third paragraph</p> <p>Here is an example of a list:</p> <p>{{{FOR EACH loans}}}</p> <p>Account number {{{loans.loanNumber}}}} has a balance of {{{loans.loanBalance}}} and matures on {{{loans.loanMaturity}}}</p> <p>{{{END FOR EACH loans}}}</p>
+# """
+):
+    print("generate pdf")
+    # some_file_path = pdfGenerator.targetPdfFileName # 'generated-doc.pdf'
+
+    temp_name = tempfile.gettempdir() + "/" + next(tempfile._get_candidate_names())
+    print(temp_name)
+    pdfkit.from_string(pdfGenerator.htmlSource, temp_name) # some_file_path)
+    # return FileResponse('micro.pdf')
+    # file_like = open(some_file_path, mode="rb")
+    response = FileResponse(path=temp_name, filename=pdfGenerator.targetPdfFileName) # some_file_path)
+    return response
+    if os.path.exists(temp_name):
+        os.remove(temp_name)
+        print("DELETE:",temp_name)
+    # return FileResponse(file_like.name, media_type="application/pdf")
+    # return StreamingResponse(file_like, media_type="application/pdf")  
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

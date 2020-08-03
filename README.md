@@ -49,6 +49,9 @@ https://www.nltk.org/data.html#command-line-installation
 ## tesseract and pytesseract install
 need to install pyteseeract. this sits on the tesseract in %PATH% which is native to windows/linux
 
+##wkhtmltopdf install
+need to install wk<html>toPDF more info here: https://wkhtmltopdf.org/
+also need to add to PATH environment variable 
 
 --------------------------------------------------------
 <a name="verify-installation-is-running"></a>

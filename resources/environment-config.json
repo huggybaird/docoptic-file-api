@@ -1,0 +1,6 @@
+{
+    "htmlTemplate": "\"<h1>This is the template for <strong>Letter Of Credit 1A</strong></h1>\\n\\n<p>Here is an example of how to populate the price of {{{exampleValue1}}}<span style=\\\"font-size:36px\\\"> </span>for the product.&nbsp;</p>\\n\\n<p>Here is another <strong>{{{borrowerName}}} closing </strong>on<strong> {{{closingDate}}}</strong></p>\\n\\n<p>{{{IF state in [NY,PA,OH]}}}</p>\\n\\n<p>Here is some verbiage specific to states NY, PA, OH</p>\\n\\n<p>{{{END IF state}}}</p>\\n\\n<p>Here is an example of a list:</p>\\n\\n<p>{{{FOR EACH loans}}}</p>\\n\\n<p>Account number {{{loans.loanNumber}}}} has a balance of {{{loans.loanBalance}}} and matures on {{{loans.loanMaturity}}}</p>\\n\\n<p>{{{END FOR EACH loans}}}</p>\\n\\n<p>&nbsp;</p>\\n\"",
+    "jsonData": "{\"message\":\"This is where you put the data that populates the template\",\"exampleValue1\":\"$200.99\",\"borrowerName\":\"Michael Baird here!1A\",\"closingDate\":\"6/30/2020\",\"state\":\"OH\",\"loans\":[{\"loanNumber\":\"12345\",\"loanBalance\":\"$125,000,000\",\"loanMaturity\":\"6/30/2027\"},{\"loanNumber\":\"67890\",\"loanBalance\":\"$33,599,421.45\",\"loanMaturity\":\"1/1/2035\"}]}"
+}
+
+<img src="/content/dam/pnc-com/images/universal/pnc-logos/pnc_logo_rev.svg" alt="PNC">

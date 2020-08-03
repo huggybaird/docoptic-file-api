@@ -10,3 +10,4 @@ sklearn
 nltk
 pytesseract
 opencv-python
+pdfkit
